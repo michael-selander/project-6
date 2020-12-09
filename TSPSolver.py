@@ -20,10 +20,10 @@ try:
 except ImportError:
 	import queue as Q
 
-TOURNAMENT_SIZE  =   10
-POPULATION_SIZE  =  100
-MATING_POOL_SIZE =   20
-MUTATION_RATE    = 0.01
+TOURNAMENT_SIZE  =   40
+POPULATION_SIZE  =   300
+MATING_POOL_SIZE =   40
+MUTATION_RATE    =   0.1
 
 class TSPSolver:
 	def __init__( self, gui_view ):
@@ -340,9 +340,17 @@ class TSPSolver:
 	def select_best_of(self, population, tournament_size):
 		tournament = random.sample(population, tournament_size);
 		best = TSPSolution();
+
+
 		for t in tournament:
+			if not t:
+				continue
 			if t.cost < best.cost:
 				best = t
+
+		if best.cost == np.inf:
+			return self.get_random_solution()
+
 		return best
 
 
@@ -356,9 +364,20 @@ class TSPSolver:
 
 	def breed(self, father, mother):
 		child = []
-
+		if not father:
+			return mother
+		if not mother:
+			return father
 		father = father.route
 		mother = mother.route
+
+
+
+		if len(mother) == 0:
+			return father
+
+		if len(father) == 0:
+			return mother
 
 		gene_length = len(father)
 
@@ -399,43 +418,109 @@ class TSPSolver:
 			if random.random() < rate:
 				second_city_index = int(random.random() * len(route))
 				route[city_index], route[second_city_index] = route[second_city_index], route[city_index]
+				if not TSPSolution(route).cost < np.inf:
+					route[city_index], route[second_city_index] = route[second_city_index], route[city_index]
+					# If the route is impossible, don't make the switch
 		return route
+
+
+	def get_initial_greedy_solutions(self):
+		cities = self._scenario.getCities()
+		greed_solutions = []
+		for i in range(len(cities)):
+			partialPath =[]
+			partialPath.append(cities[i])
+			while len(partialPath) < len(cities):
+				# create a random permutation
+				last = partialPath[len(partialPath)-1]
+
+				lowestDist = math.inf
+				lowestNode = None
+				for c in cities:
+					if c in partialPath:
+						continue
+					if last.costTo(c) < lowestDist:
+						lowestNode = c
+						lowestDist = last.costTo(c)
+				if lowestNode is None:
+					break
+				partialPath.append(lowestNode)
+
+			if len(partialPath) < len(cities):
+				sol = TSPSolution()
+			else:
+				sol = TSPSolution(partialPath)
+				greed_solutions.append(sol)
+
+		return greed_solutions
+
+	def get_random_solution(self):
+		cities = self._scenario.getCities()
+		perm = np.random.permutation(len(cities))
+		route = []
+		# Now build the route using the random permutation
+		for i in range(len(cities)):
+			route.append(cities[perm[i]])
+		bssf = TSPSolution(route)
+
+	def get_population(self, population_size):
+		cities = self._scenario.getCities()
+		current_population = []
+		greedy_solutions = self.get_initial_greedy_solutions()
+
+		if len(cities) < 31:
+			current_population += greedy_solutions
+			while len(current_population) < POPULATION_SIZE:
+				current_population.append(self.defaultRandomTour()['soln'])
+			return current_population
+
+		current_population += greedy_solutions
+		while len(current_population) < POPULATION_SIZE:
+			random_index = random.randint(0, len(current_population) - 1)
+			child = self.mutate(current_population[random_index].route, MUTATION_RATE)
+			if TSPSolution(child).cost and child not in current_population:
+				current_population.append(TSPSolution(child))
+		return current_population
 
 
 
 
 
 	def fancy( self,time_allowance=60.0 ):
-		current_population = []
-		for i in range(POPULATION_SIZE):
-			current_population.append(self.defaultRandomTour()['soln'])
-
-		for i in range(500):
+		start_time = time.time()
+		current_population = self.get_population(POPULATION_SIZE)
+		bssf = TSPSolution()
+		for s in current_population:
+			if s.cost < bssf.cost:
+				bssf = s
+		for i in range(100):
+			print(i)
+			print(start_time  - time.time())
 			children = self.next_generation(current_population)
-
-
 
 			current_population = []
 
 			for child in children:
+				if not child:
+					continue
 				child = TSPSolution(self.mutate(child.route, MUTATION_RATE))
 				current_population.append(child)
 
-			bssf = TSPSolution()
+
 			for s in current_population:
 				if s.cost < bssf.cost:
 					bssf = s
+					print(bssf.cost)
+					print(i)
+					print("hey")
 
-			print(bssf.cost)
-			print(current_population.index(bssf))
 
-		bssf = TSPSolution()
 		for s in current_population:
 			if s.cost < bssf.cost:
 				bssf = s
 		results = {}
 		results['cost'] = bssf.cost if True else math.inf
-		results['time'] = 0 #end_time - start_time
+		results['time'] = time.time() - start_time
 		results['count'] = 0 #count
 		results['soln'] = bssf
 		return results
